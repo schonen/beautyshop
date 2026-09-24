@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENT
+  ADMIN
+}
+
+enum SkinType {
+  NORMAL
+  SEC
+  GRAS
+  MIXTE
+  TOUS
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  PICKED_UP
+  CANCELLED
+}
+
+enum FulfillmentMethod {
+  DELIVERY
+  PICKUP
+}
+
+enum PaymentMethod {
+  ORANGE_MONEY
+  MTN_MOBILE_MONEY
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum NotificationType {
+  PAYMENT_SUCCESS
+  NEW_ORDER
+  ORDER_STATUS_CHANGED
+  LOW_STOCK
+  SYSTEM
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  phone        String?
+  role         Role     @default(CLIENT)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders          Order[]
+  reviews         Review[]
+  aiConversations AIConversation[]
+  notifications   Notification[]
+
+  @@map("users")
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  brand       String?
+  name        String
+  description String
+  price       Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  imageUrl    String?
+  skinType    SkinType @default(TOUS)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  orderItems OrderItem[]
+  reviews    Review[]
+
+  @@index([categoryId])
+  @@index([skinType])
+  @@index([isActive])
+  @@index([stock])
+  @@map("products")
+}
+
+// Le nom/téléphone/ville/adresse du client sont dupliqués sur la commande (snapshot)
+// afin de conserver l'historique même si le profil utilisateur change plus tard.
+model Order {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  status      OrderStatus @default(PENDING_PAYMENT)
+  subtotal    Decimal     @db.Decimal(10, 2)
+  deliveryFee Decimal     @default(0) @db.Decimal(10, 2)
+  total       Decimal     @db.Decimal(10, 2)
+
+  fulfillmentMethod    FulfillmentMethod
+  deliveryCity         String?
+  deliveryNeighborhood String?
+  deliveryAddress      String?
+  deliveryNotes        String?
+
+  customerName  String
+  customerPhone String
+
+  items   OrderItem[]
+  payment Payment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2) // prix figé au moment de la commande
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// Relation 1-0..1 avec Order : orderId unique => une commande ne peut avoir
+// qu'un seul enregistrement de paiement (empêche mécaniquement le double paiement).
+model Payment {
+  id      String @id @default(uuid())
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  method PaymentMethod
+  status PaymentStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("XAF")
+
+  transactionReference String  @unique
+  idempotencyKey        String? @unique
+  customerPhone          String?
+  cardLast4              String? // jamais le numéro complet, jamais le CVV
+
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  @@index([status])
+  @@index([method])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+model Notification {
+  id      String           @id @default(uuid())
+  type    NotificationType
+  title   String
+  message String
+
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id])
+  orderId   String?
+  paymentId String?
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// Singleton (une seule ligne, id fixe "default") : configuration boutique modifiable par l'admin.
+model StoreSettings {
+  id           String @id @default("default")
+  storeName    String @default("BeautyShop")
+  storeCity    String @default("Douala")
+  storeAddress String @default("")
+  storePhone   String @default("")
+  currency     String @default("XAF")
+
+  deliveryEnabled   Boolean @default(true)
+  minDeliveryFee    Decimal @default(1000) @db.Decimal(10, 2)
+  maxDeliveryFee    Decimal @default(2500) @db.Decimal(10, 2)
+  lowStockThreshold Int     @default(5)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("store_settings")
+}
+
+// Zones tarifaires de livraison, toutes situées dans la ville de la boutique.
+// isDefault = zone appliquée quand le quartier saisi ne correspond à aucune zone connue.
+model DeliveryZone {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  fee       Decimal  @db.Decimal(10, 2)
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("delivery_zones")
+}
+
+// --- Modèles secondaires ---
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@map("reviews")
+}
+
+model AIConversation {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+  createdAt DateTime    @default(now())
+  messages  AIMessage[]
+
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // "user" | "assistant"
+  content        String
+  createdAt      DateTime       @default(now())
+
+  @@map("ai_messages")
+}
