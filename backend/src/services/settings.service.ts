@@ -36,12 +36,24 @@ export const settingsService = {
   async upsertDeliveryZone(input: UpsertDeliveryZoneInput) {
     if (input.isDefault) {
       // Une seule zone par défaut à la fois
-      await prisma.deliveryZone.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
+      await prisma.deliveryZone.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
     }
     return prisma.deliveryZone.upsert({
       where: { name: input.name },
-      update: input,
-      create: input,
+      update: {
+        fee: input.fee,
+        isDefault: input.isDefault ?? false,
+        isActive: input.isActive ?? true,
+      },
+      create: {
+        name: input.name,
+        fee: input.fee,
+        isDefault: input.isDefault ?? false,
+        isActive: input.isActive ?? true,
+      },
     });
   },
 

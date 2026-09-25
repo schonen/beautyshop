@@ -16,12 +16,23 @@ export const categoryService = {
   async create(input: CreateCategoryInput) {
     const existing = await prisma.category.findUnique({ where: { name: input.name } });
     if (existing) throw ApiError.conflict("Cette catégorie existe déjà");
-    return prisma.category.create({ data: input });
+    return prisma.category.create({
+      data: {
+        name: input.name,
+        description: input.description,
+      },
+    });
   },
 
   async update(id: string, input: UpdateCategoryInput) {
     await this.getById(id);
-    return prisma.category.update({ where: { id }, data: input });
+    return prisma.category.update({
+      where: { id },
+      data: {
+        ...(input.name !== undefined && { name: input.name }),
+        ...(input.description !== undefined && { description: input.description }),
+      },
+    });
   },
 
   async remove(id: string) {

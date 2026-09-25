@@ -60,7 +60,19 @@ export const productService = {
   async create(input: CreateProductInput) {
     const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
     if (!category) throw ApiError.badRequest("Catégorie inexistante");
-    return prisma.product.create({ data: input, include: { category: true } });
+    return prisma.product.create({
+      data: {
+        name: input.name,
+        description: input.description,
+        brand: input.brand,
+        price: input.price,
+        stock: input.stock,
+        imageUrl: input.imageUrl,
+        skinType: input.skinType,
+        categoryId: input.categoryId,
+      },
+      include: { category: true },
+    });
   },
 
   async update(id: string, input: UpdateProductInput) {
@@ -69,7 +81,20 @@ export const productService = {
       const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
       if (!category) throw ApiError.badRequest("Catégorie inexistante");
     }
-    return prisma.product.update({ where: { id }, data: input, include: { category: true } });
+    return prisma.product.update({
+      where: { id },
+      data: {
+        ...(input.name !== undefined && { name: input.name }),
+        ...(input.description !== undefined && { description: input.description }),
+        ...(input.brand !== undefined && { brand: input.brand }),
+        ...(input.price !== undefined && { price: input.price }),
+        ...(input.stock !== undefined && { stock: input.stock }),
+        ...(input.imageUrl !== undefined && { imageUrl: input.imageUrl }),
+        ...(input.skinType !== undefined && { skinType: input.skinType }),
+        ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
+      },
+      include: { category: true },
+    });
   },
 
   /** Désactivation logique plutôt que suppression : préserve l'historique des commandes passées. */
@@ -99,7 +124,7 @@ export const productService = {
         OR: [{ skinType: product.skinType }, { skinType: "TOUS" }],
       },
       include: { category: true },
-      take: take * 2, // marge pour trier ensuite par proximité de prix
+      take: take * 2,
     });
 
     return candidates
